@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>IPTV Web Player</title>
+
+<!-- hls.js for HLS playback -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
+
+<style>
+  :root{
+    --bg:#0f1720; --panel:#111827; --muted:#9ca3af; --accent:#06b6d4;
+    --card:#0b1220; --glass: rgba(255,255,255,0.03);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue"; background:linear-gradient(180deg,#07101a 0%, #071423 100%); color:#e6eef6;}
+  header{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.03);}
+  header h1{font-size:16px;margin:0;font-weight:600}
+  header .tools{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .container{display:grid;grid-template-columns:360px 1fr;gap:12px;padding:12px;}
+  .sidebar{background:var(--panel);border-radius:10px;padding:12px;height:calc(100vh - 92px);overflow:auto}
+  .main{background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent); border-radius:10px;padding:12px;height:calc(100vh - 92px);display:flex;flex-direction:column;gap:12px}
+  .search{display:flex;gap:8px;margin-bottom:8px}
+  input[type=search]{flex:1;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.03);background:var(--glass);color:inherit}
+  button{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted);padding:8px;border-radius:8px;cursor:pointer}
+  .filters{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+  .cat{padding:6px 8px;border-radius:999px;font-size:13px;background:transparent;border:1px solid rgba(255,255,255,0.02);cursor:pointer;color:var(--muted)}
+  .cat.active{background:var(--accent);color:#042b30;border-color:transparent}
+  .list{overflow:auto;display:grid;grid-template-columns:1fr;gap:8px;padding-right:8px}
+  .channel{display:flex;gap:10px;align-items:center;padding:8px;border-radius:8px;background:linear-gradient(90deg, rgba(255,255,255,0.01), transparent);cursor:pointer}
+  .channel:hover{transform:translateY(-2px);transition:transform .12s}
+  .logo{width:56px;height:40px;border-radius:6px;background:#08111a;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .logo img{width:100%;height:100%;object-fit:contain}
+  .meta{flex:1;min-width:0}
+  .meta h3{margin:0;font-size:14px;font-weight:600}
+  .meta p{margin:2px 0 0;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .actions{display:flex;gap:6px;align-items:center}
+  .player-wrap{display:flex;gap:12px;align-items:flex-start}
+  .player{flex:1;min-height:280px;border-radius:8px;overflow:hidden;background:#000;display:flex;align-items:center;justify-content:center;position:relative}
+  video{width:100%;height:100%;background:#000;display:block}
+  .rightcol{width:360px;display:flex;flex-direction:column;gap:8px}
+  .info{background:var(--card);padding:10px;border-radius:8px}
+  .small{font-size:12px;color:var(--muted);}
+  .fav{color:var(--muted);cursor:pointer}
+  .fav.active{color:#ffd166}
+  .m3u-btn{background:var(--accent);color:#042b30;border:none;padding:8px 10px;border-radius:8px;font-weight:600}
+  footer{padding:10px;color:var(--muted);font-size:13px;text-align:center}
+  @media (max-width:900px){
+    .container{grid-template-columns:1fr;padding:8px}
+    .rightcol{order:3;width:100%}
+  }
+</style>
+</head>
+<body>
+<header>
+  <img src="data:image/svg+xml,%3Csvg width='28' height='28' xmlns='http://www.w3.org/2000/svg'%3E%3Crect rx='6' width='28' height='28' fill='%2305a6b1'/%3E%3Cpath d='M7 9h14v2H7zM7 13h10v2H7z' fill='%23001415'/%3E%3C/svg%3E" alt="logo" style="width:34px;height:34px;border-radius:6px">
+  <h1>IPTV Web Player</h1>
+
+  <div class="tools">
+    <button id="refresh">Refresh</button>
+    <button id="exportM3U" class="m3u-btn">Export M3U</button>
+    <button id="clearFavs">Clear Favorites</button>
+  </div>
+</header>
+
+<div class="container">
+  <aside class="sidebar">
+    <div class="search">
+      <input id="q" type="search" placeholder="Search channels, country, language..." />
+      <button id="btnSearch">Search</button>
+    </div>
+
+    <div class="small" style="margin-bottom:6px">Favorites</div>
+    <div id="favList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px"></div>
+
+    <div class="small">Categories</div>
+    <div id="categories" class="filters"></div>
+
+    <div style="height:10px"></div>
+    <div class="small" style="margin-bottom:6px">Channels</div>
+    <div id="channels" class="list"></div>
+  </aside>
+
+  <main class="main">
+    <div class="player-wrap">
+      <div class="player">
+        <video id="video" controls playsinline></video>
+        <div id="playerOverlay" style="position:absolute;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;color:var(--muted);pointer-events:none">
+          <div id="playerMsg">Select a channel to play</div>
+        </div>
+      </div>
+
+      <div class="rightcol">
+        <div class="info">
+          <h3 id="nowName">No channel</h3>
+          <div class="small" id="nowMeta">Not playing</div>
+          <div style="height:10px"></div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button id="openTab">Open stream</button>
+            <button id="openExternal">Open external</button>
+            <button id="favBtn" class="fav">☆ Favorite</button>
+          </div>
+        </div>
+
+        <div class="info">
+          <div class="small">Stream info</div>
+          <pre id="streamInfo" style="white-space:pre-wrap;margin:8px 0 0;font-size:13px;color:var(--muted)"></pre>
+        </div>
+
+        <div class="info">
+          <div class="small">Filters</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+            <button id="onlyOnline" class="cat">Online only</button>
+            <button id="onlyWithLogo" class="cat">With logo</button>
+            <button id="groupByCountry" class="cat">Group by country</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div style="flex:1;display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+      <div class="info" style="flex:1;min-width:260px">
+        <div class="small">Selected stream</div>
+        <div id="selectedUrl" style="word-break:break-all;margin-top:6px;color:var(--muted)"></div>
+      </div>
+
+      <div class="info" style="width:240px">
+        <div class="small">Playlist stats</div>
+        <div style="margin-top:6px" id="stats"></div>
+      </div>
+    </div>
+
+    <footer>Powered by IPTV-Org public API · Streams are subject to CORS / geo restrictions</footer>
+  </main>
+</div>
+
+<script>
+(async function(){
+  // Data sources (IPTV-Org public API)
+  const CHANNELS_URL = "https://iptv-org.github.io/api/channels.json";
+  const STREAMS_URL  = "https://iptv-org.github.io/api/streams.json";
+
+  // DOM
+  const channelsEl = document.getElementById("channels");
+  const categoriesEl = document.getElementById("categories");
+  const qEl = document.getElementById("q");
+  const btnSearch = document.getElementById("btnSearch");
+  const videoEl = document.getElementById("video");
+  const playerMsg = document.getElementById("playerMsg");
+  const nowName = document.getElementById("nowName");
+  const nowMeta = document.getElementById("nowMeta");
+  const openTab = document.getElementById("openTab");
+  const openExternal = document.getElementById("openExternal");
+  const favBtn = document.getElementById("favBtn");
+  const favListEl = document.getElementById("favList");
+  const exportM3U = document.getElementById("exportM3U");
+  const refresh = document.getElementById("refresh");
+  const selectedUrl = document.getElementById("selectedUrl");
+  const streamInfo = document.getElementById("streamInfo");
+  const statsEl = document.getElementById("stats");
+  const onlyOnlineBtn = document.getElementById("onlyOnline");
+  const onlyWithLogoBtn = document.getElementById("onlyWithLogo");
+
+  let channels = [], streams = [], merged = [];
+  let filtered = [];
+  let current = null;
+  let hls = null;
+
+  function setMsg(txt){
+    playerMsg.textContent = txt;
+  }
+
+  function loadFavs(){
+    try { return JSON.parse(localStorage.getItem("iptv_favs")||"[]"); }
+    catch(e){ return []; }
+  }
+  function saveFavs(list){ localStorage.setItem("iptv_favs", JSON.stringify(list)); }
+  function isFav(id){ return loadFavs().includes(id); }
+
+  function renderFavs(){
+    const favs = loadFavs();
+    favListEl.innerHTML = "";
+    if (!favs.length){ favListEl.innerHTML = `<div class="small" style="color:var(--muted)">No favorites yet — click ☆ to add</div>`; return; }
+    favs.forEach(id=>{
+      const ch = merged.find(x=>x.id===id);
+      if (!ch) return;
+      const d = document.createElement("div");
+      d.className = "channel";
+      d.innerHTML = `
+        <div class="logo"><img src="${ch.logo||''}" alt=""></div>
+        <div class="meta"><h3 style="font-size:13px">${ch.name}</h3><p>${ch.country || ch.lang || ''}</p></div>
+        <div class="actions"><button data-id="${ch.id}" class="playbtn">Play</button></div>
+      `;
+      favListEl.appendChild(d);
+    });
+  }
+
+  async function fetchData(){
+    setMsg("Loading channel list...");
+    channels = await fetch(CHANNELS_URL).then(r=>r.json());
+    streams  = await fetch(STREAMS_URL).then(r=>r.json());
+    // merge: pick first online stream for each channel
+    merged = channels.map(ch=>{
+      const stream = streams.find(s=>s.channel===ch.id && s.status==="online") || streams.find(s=>s.channel===ch.id);
+      return Object.assign({}, ch, { stream: stream ? stream.url : null, stream_obj: stream || null });
+    });
+    filtered = merged.slice();
+    renderCategories();
+    renderList();
+    updateStats();
+    setMsg("Select a channel to play");
+  }
+
+  function renderCategories(){
+    // gather categories from channels categories or country
+    const cats = new Map();
+    merged.forEach(c=>{
+      const key = (c.categories && c.categories.length) ? c.categories[0].name : (c.country || "Uncategorized");
+      if(!cats.has(key)) cats.set(key, 0);
+      cats.set(key, cats.get(key)+1);
+    });
+    categoriesEl.innerHTML = "";
+    // top: All
+    const allBtn = document.createElement("button");
+    allBtn.className = "cat active";
+    allBtn.textContent = `All (${merged.length})`;
+    allBtn.onclick = ()=>{ document.querySelectorAll(".cat").forEach(x=>x.classList.remove("active")); allBtn.classList.add("active"); filtered = merged.slice(); renderList(); };
+    categoriesEl.appendChild(allBtn);
+    for(const [k,v] of cats){
+      const b = document.createElement("button");
+      b.className = "cat";
+      b.textContent = `${k} (${v})`;
+      b.onclick = ()=>{ document.querySelectorAll(".cat").forEach(x=>x.classList.remove("active")); b.classList.add("active"); filtered = merged.filter(x=> (x.categories && x.categories.some(c=>c.name===k)) || x.country===k ); renderList(); };
+      categoriesEl.appendChild(b);
+    }
+  }
+
+  function renderList(){
+    channelsEl.innerHTML = "";
+    const q = qEl.value.trim().toLowerCase();
+    const onlyOnline = onlyOnlineBtn.classList.contains("active");
+    const onlyWithLogo = onlyWithLogoBtn.classList.contains("active");
+
+    const toShow = filtered.filter(ch=>{
+      if(onlyOnline && !(ch.stream_obj && ch.stream_obj.status==="online")) return false;
+      if(onlyWithLogo && !ch.logo) return false;
+      if(!q) return true;
+      return (ch.name||"").toLowerCase().includes(q) || (ch.country||"").toLowerCase().includes(q) || (ch.lang||"").toLowerCase().includes(q);
+    });
+
+    toShow.forEach(ch=>{
+      const div = document.createElement("div");
+      div.className = "channel";
+      div.dataset.id = ch.id;
+      div.innerHTML = `
+        <div class="logo">${ch.logo ? `<img src="${ch.logo}" alt="${ch.name}">` : ''}</div>
+        <div class="meta"><h3>${ch.name}</h3><p>${(ch.country||"") + (ch.lang? " · "+ch.lang:"")}</p></div>
+        <div class="actions">
+          <button class="playbtn" data-id="${ch.id}">Play</button>
+          <button class="openbtn" data-id="${ch.id}">Open</button>
+          <button class="favbtn" data-id="${ch.id}">${isFav(ch.id)?'★':'☆'}</button>
+        </div>
+      `;
+      channelsEl.appendChild(div);
+    });
+
+    // attach handlers
+    channelsEl.querySelectorAll(".playbtn").forEach(b=>b.onclick = ()=>playById(b.dataset.id));
+    channelsEl.querySelectorAll(".openbtn").forEach(b=>b.onclick = ()=>openStream(b.dataset.id));
+    channelsEl.querySelectorAll(".favbtn").forEach(b=>b.onclick = e=>{
+      const id = b.dataset.id;
+      let favs = loadFavs();
+      if (favs.includes(id)){ favs = favs.filter(x=>x!==id); b.textContent='☆'; }
+      else { favs.push(id); b.textContent='★'; }
+      saveFavs(favs);
+      renderFavs();
+    });
+    renderFavs();
+  }
+
+  function updateStats(){
+    const total = merged.length;
+    const online = merged.filter(x=>x.stream_obj && x.stream_obj.status==="online").length;
+    statsEl.innerHTML = `<div>Total channels: <b>${total}</b></div><div>Online: <b>${online}</b></div>`;
+  }
+
+  function playById(id){
+    const ch = merged.find(x=>x.id===id);
+    if(!ch) return alert("Channel not found");
+    if(!ch.stream){ alert("No stream URL available for this channel."); return; }
+    playStream(ch);
+  }
+
+  function openStream(id){
+    const ch = merged.find(x=>x.id===id);
+    if(!ch || !ch.stream) return alert("No stream found.");
+    window.open(ch.stream, "_blank");
+  }
+
+  function setNow(ch){
+    current = ch;
+    nowName.textContent = ch.name;
+    nowMeta.textContent = `${ch.country || ''} · ${ch.lang || ''} · ${ch.stream_obj ? ch.stream_obj.status : 'no stream'}`;
+    favBtn.textContent = isFav(ch.id) ? "★ Favorited" : "☆ Favorite";
+    favBtn.classList.toggle("active", isFav(ch.id));
+    selectedUrl.textContent = ch.stream || "(no stream)";
+    streamInfo.textContent = JSON.stringify(ch.stream_obj || { url: ch.stream }, null, 2);
+  }
+
+  function playStream(ch){
+    setNow(ch);
+    const url = ch.stream;
+    selectedUrl.innerText = url;
+    // cleanup existing hls
+    if(hls){ try { hls.destroy(); } catch(e){} hls = null; }
+    // use hls.js for .m3u8, fallback to native
+    if(Hls.isSupported() && url && url.includes(".m3u8")){
+      hls = new Hls();
+      hls.loadSource(url);
+      hls.attachMedia(videoEl);
+      hls.on(Hls.Events.MANIFEST_PARSED, function() {
+        videoEl.play().catch(()=>{});
+      });
+      hls.on(Hls.Events.ERROR, function(event, data){
+        console.warn("HLS error", data);
+        if(data.fatal){
+          setMsg("Playback error ("+data.type+"). Try opening in external player.");
+        }
+      });
+      setMsg("Playing: " + ch.name);
+    } else {
+      // try native playback
+      videoEl.src = url;
+      videoEl.play().catch(()=>{ setMsg("Autoplay blocked — press play."); });
+      setMsg("Playing: " + ch.name);
+    }
+  }
+
+  // buttons
+  btnSearch.onclick = ()=>renderList();
+  qEl.onkeydown = e=>{ if(e.key==="Enter") renderList(); };
+  refresh.onclick = ()=>{ fetchData(); };
+  exportM3U.onclick = ()=>{
+    // export M3U of current filtered list
+    let text = "#EXTM3U\n\n";
+    const toExport = Array.from(channelsEl.querySelectorAll(".channel")).map(n=> n.dataset.id ? merged.find(x=>x.id===n.dataset.id) : null).filter(Boolean);
+    (toExport.length ? toExport : merged).forEach(ch=>{
+      if(!ch.stream) return;
+      text += `#EXTINF:-1 tvg-id="${ch.id}" tvg-name="${ch.name}" tvg-logo="${ch.logo||''}" group-title="${ch.country||''}",${ch.name}\n`;
+      text += `${ch.stream}\n\n`;
+    });
+    const blob = new Blob([text], {type:"text/plain;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "playlist.m3u"; document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  // favorite button in right column
+  favBtn.onclick = ()=>{
+    if(!current) return alert("Select a channel first");
+    let favs = loadFavs();
+    if(favs.includes(current.id)){ favs = favs.filter(x=>x!==current.id); }
+    else favs.push(current.id);
+    saveFavs(favs);
+    favBtn.classList.toggle("active", isFav(current.id));
+    favBtn.textContent = isFav(current.id) ? "★ Favorited" : "☆ Favorite";
+    renderList();
+  };
+
+  openTab.onclick = ()=>{ if(!current || !current.stream) return alert("Select a playing channel"); window.open(current.stream,"_blank"); };
+  openExternal.onclick = ()=>{ if(!current || !current.stream) return alert("Select a playing channel"); alert("You can copy the URL and open in your external player (VLC)."); };
+  document.getElementById("clearFavs").onclick = ()=>{ localStorage.removeItem("iptv_favs"); renderFavs(); renderList(); };
+
+  // favorite list play handler (delegation)
+  favListEl.addEventListener("click", (e)=>{
+    if(e.target.matches(".playbtn")){
+      const id = e.target.dataset.id;
+      playById(id);
+    }
+  });
+
+  // toggle filters
+  onlyOnlineBtn.onclick = ()=>{ onlyOnlineBtn.classList.toggle("active"); renderList(); };
+  onlyWithLogoBtn.onclick = ()=>{ onlyWithLogoBtn.classList.toggle("active"); renderList(); };
+
+  // load
+  try{ await fetchData(); } catch(err){ console.error(err); setMsg("Failed to load channel list — check network."); }
+
+})();
+</script>
+</body>
+</html>
